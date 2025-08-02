@@ -1,3 +1,5 @@
 export const ollamaUrl = () => {
-    return localStorage.getItem("ollamaUrl") + ":" + localStorage.getItem("ollamaPort");
-}
+  return (
+    localStorage.getItem("ollamaUrl") + ":" + localStorage.getItem("ollamaPort")
+  );
+};
