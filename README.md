@@ -16,7 +16,7 @@
 
 ## Installation
 
-To get started with ConvoBuddy, you have two options:
+To get started with ConvoBuddy
 
 ### 1. **Build the app from source**
 
