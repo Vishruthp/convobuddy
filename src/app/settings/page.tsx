@@ -6,84 +6,145 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/theme-toggle";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { BackendProvider } from "@/lib/localstoragehelper";
 
 interface SettingsForm {
+  provider: BackendProvider;
   ollamaUrl: string;
   ollamaPort: number;
 }
 
+const PROVIDERS: { label: string; value: BackendProvider; defaultPort: number }[] = [
+  { label: "Ollama", value: "ollama", defaultPort: 11434 },
+  { label: "LM Studio", value: "lm-studio", defaultPort: 1234 },
+  { label: "llama.cpp", value: "llama-cpp", defaultPort: 8080 },
+  { label: "Generic OpenAI API", value: "openai-generic", defaultPort: 8000 },
+];
+
 const SettingsPage = () => {
-  const { register, handleSubmit, setValue } = useForm<SettingsForm>();
+  const router = useRouter();
+  const { register, handleSubmit, setValue, watch } = useForm<SettingsForm>({
+    defaultValues: {
+      provider: "ollama",
+      ollamaUrl: "http://127.0.0.1",
+      ollamaPort: 11434,
+    },
+  });
   const [savedSettings, setSavedSettings] = useState<SettingsForm | null>(null);
+
+  const selectedProvider = watch("provider");
+
+  // Update default port when provider changes
   useEffect(() => {
-    // Load settings from localStorage on page load
+    const providerObj = PROVIDERS.find((p) => p.value === selectedProvider);
+    if (providerObj && !savedSettings) {
+      setValue("ollamaPort", providerObj.defaultPort);
+    }
+  }, [selectedProvider, setValue, savedSettings]);
+
+  useEffect(() => {
     const savedOllamaUrl = localStorage.getItem("ollamaUrl");
     const savedPort = localStorage.getItem("ollamaPort");
+    const savedProvider = localStorage.getItem("backendProvider") as BackendProvider;
 
     if (savedOllamaUrl && savedPort) {
+      const port = parseInt(savedPort);
+      const provider = savedProvider || "ollama";
       setSavedSettings({
+        provider,
         ollamaUrl: savedOllamaUrl,
-        ollamaPort: parseInt(savedPort),
+        ollamaPort: port,
       });
-      // Set form values from localStorage
+      setValue("provider", provider);
       setValue("ollamaUrl", savedOllamaUrl);
-      setValue("ollamaPort", parseInt(savedPort));
+      setValue("ollamaPort", port);
     }
   }, [setValue]);
 
   const onSubmit = (data: SettingsForm) => {
-    // Save settings to localStorage
+    localStorage.setItem("backendProvider", data.provider);
     localStorage.setItem("ollamaUrl", data.ollamaUrl);
     localStorage.setItem("ollamaPort", data.ollamaPort.toString());
-    redirect("/chat");
+    router.push("/chat");
   };
 
   return (
-    <div className="p-4 max-w-xl mx-auto">
-      <h1 className="text-3xl font-bold mb-4">Settings</h1>
-      <div className="mb-4">
-        <p> Theme Toggle </p>
+    <div className="p-4 max-w-xl mx-auto space-y-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Settings</h1>
         <ModeToggle />
       </div>
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <div className="mb-4">
-          <Label htmlFor="ollamaUrl">Ollama URL</Label>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <div className="space-y-2">
+          <Label>Backend Provider</Label>
+          <Select
+            value={selectedProvider}
+            onValueChange={(val) => setValue("provider", val as BackendProvider)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a provider" />
+            </SelectTrigger>
+            <SelectContent>
+              {PROVIDERS.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="ollamaUrl">Base URL</Label>
           <Input
             id="ollamaUrl"
-            placeholder="Enter Ollama URL"
-            value="http://localhost"
-            {...register("ollamaUrl", { required: "Ollama URL is required" })}
+            placeholder="http://127.0.0.1"
+            {...register("ollamaUrl", { required: "Base URL is required" })}
             className="w-full"
           />
         </div>
 
-        <div className="mb-4">
+        <div className="space-y-2">
           <Label htmlFor="port">Port</Label>
           <Input
             id="port"
             type="number"
-            value="11434"
-            placeholder="Enter Port"
             {...register("ollamaPort", { required: "Port is required" })}
             className="w-full"
           />
         </div>
 
-        <Button type="submit" className="w-full">
-          Save Settings
+        <Button type="submit" className="w-full py-6 text-lg font-bold">
+          Save and Start Chatting
         </Button>
       </form>
 
       {savedSettings && (
-        <div className="mt-4">
-          <h3 className="text-xl font-semibold">Saved Settings</h3>
-          <p>
-            <strong>Ollama URL:</strong> {savedSettings.ollamaUrl}
-          </p>
-          <p>
-            <strong>Port:</strong> {savedSettings.ollamaPort}
-          </p>
+        <div className="mt-8 p-4 border rounded-lg bg-muted/50">
+          <h3 className="text-xl font-semibold mb-4 border-b pb-2">Active Configuration</h3>
+          <div className="space-y-2 text-sm">
+            <p className="flex justify-between">
+              <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wider">Provider</span>
+              <span className="font-mono">{PROVIDERS.find(p => p.value === savedSettings.provider)?.label}</span>
+            </p>
+            <p className="flex justify-between">
+              <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wider">Base URL</span> 
+              <code className="bg-muted px-1 rounded">{savedSettings.ollamaUrl}</code>
+            </p>
+            <p className="flex justify-between">
+              <span className="font-semibold text-muted-foreground text-xs uppercase tracking-wider">Port</span> 
+              <code className="bg-muted px-1 rounded">{savedSettings.ollamaPort}</code>
+            </p>
+          </div>
         </div>
       )}
     </div>
