@@ -39,6 +39,17 @@ export const getBackendUrl = (): string => {
 
 const CHATS_KEY = "convobuddy_chats";
 const ACTIVE_CHAT_KEY = "convobuddy_active_chat";
+const LAST_MODEL_KEY = "convobuddy_last_model";
+
+export const getLastUsedModel = (): string => {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(LAST_MODEL_KEY) || "";
+};
+
+export const setLastUsedModel = (model: string) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(LAST_MODEL_KEY, model);
+};
 
 export const getChats = (): ChatSession[] => {
   if (typeof window === "undefined") return [];

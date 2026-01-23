@@ -10,7 +10,9 @@ import {
   getChatById, 
   ChatSession, 
   getActiveChatId, 
-  setActiveChatId 
+  setActiveChatId,
+  getLastUsedModel,
+  setLastUsedModel
 } from "@/lib/localstoragehelper";
 import {
   Select,
@@ -21,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ModeToggle } from "@/components/theme-toggle";
-import { ArrowUpIcon, Settings, Server, Square } from "lucide-react";
+import { ArrowUpIcon, Settings, Server, Square, Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Link from "next/link";
@@ -42,6 +44,8 @@ export default function Chat() {
   const [inputText, setInputText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [provider, setProvider] = useState("");
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollTo({
@@ -54,22 +58,39 @@ export default function Chat() {
     scrollToBottom();
   }, [messages, isStreaming]);
 
-  // Initial load
+  const fetchModels = async () => {
+    setIsLoadingModels(true);
+    setFetchError(null);
+    try {
+      const resp: any = await GetModels();
+      const models = resp.data.data || resp.data.models || [];
+      const names = models.map((item: any) => item.id || item.name || item.model);
+      setModelsList(names);
+      if (names.length > 0 && !model) {
+        // Optionally auto-select first model if none selected
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch models", err);
+      setFetchError(err.message || "Failed to connect to backend");
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
   useEffect(() => {
     const activeProvider = getBackendProvider();
     setProvider(activeProvider);
-
-    GetModels()
-      .then((resp: any) => {
-        const models = resp.data.data || resp.data.models || [];
-        const names = models.map((item: any) => item.id || item.name || item.model);
-        setModelsList(names);
-      })
-      .catch((err) => console.error("Failed to fetch models", err));
+    fetchModels();
 
     const lastId = getActiveChatId();
     if (lastId) {
       loadChat(lastId);
+    } else {
+      const lastModel = getLastUsedModel();
+      if (lastModel) {
+        setModel(lastModel);
+        setIsModelSelected(true);
+      }
     }
   }, []);
 
@@ -88,8 +109,7 @@ export default function Chat() {
   const handleNewChat = () => {
     setCurrentChatId(null);
     setMessages([]);
-    setIsModelSelected(false);
-    setModel("");
+    // Do not reset model or isModelSelected to retain the last used model
     setActiveChatId(null);
   };
 
@@ -241,14 +261,38 @@ export default function Chat() {
               onValueChange={(value) => {
                 setModel(value);
                 setIsModelSelected(true);
+                setLastUsedModel(value); // Save as last used
               }}
+              disabled={isLoadingModels || !!fetchError}
             >
               <SelectTrigger className="w-[180px] sm:w-[240px]">
-                <SelectValue placeholder="Select a Model" />
+                {isLoadingModels ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />
+                    <span>Loading...</span>
+                  </div>
+                ) : (
+                  <SelectValue placeholder={fetchError ? "Error fetching" : "Select a Model"} />
+                )}
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {modelsList.length > 0 ? (
+                  {fetchError ? (
+                    <div className="p-2 space-y-2">
+                       <p className="text-xs text-destructive font-medium">{fetchError}</p>
+                       <Button 
+                         size="sm" 
+                         variant="outline" 
+                         className="w-full text-[10px] h-7"
+                         onClick={(e) => {
+                           e.preventDefault();
+                           fetchModels();
+                         }}
+                       >
+                         Retry
+                       </Button>
+                    </div>
+                  ) : modelsList.length > 0 ? (
                     modelsList.map((m, i) => (
                       <SelectItem key={i} value={m}>
                         {m}
