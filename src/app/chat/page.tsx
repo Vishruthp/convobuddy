@@ -1,39 +1,28 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { StreamAIResponse, GetModels, Message } from "@/lib/apiservice";
+import { GenerateImage, StreamAIResponse, GetModels, Message } from "@/lib/apiservice";
 import { 
-  getBackendProvider, 
+  getBackendProviderType, 
+  getActiveProvider,
   saveChat, 
   getChats, 
-  getChatById, 
   ChatSession, 
   getActiveChatId, 
   setActiveChatId,
   getLastUsedModel,
-  setLastUsedModel
+  setLastUsedModel,
+  Provider,
 } from "@/lib/localstoragehelper";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ModeToggle } from "@/components/theme-toggle";
-import { ArrowUpIcon, Settings, Server, Square, Loader2 } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import Link from "next/link";
 import { Sidebar } from "@/components/chat/sidebar";
 import { v4 as uuidv4 } from "uuid";
-import { cn } from "@/lib/utils";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ChatHeader } from "@/components/chat/ChatHeader";
+import { MessageList } from "@/components/chat/MessageList";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { isVisionModel, isGenerationSupported } from "@/lib/capabilities";
 
 export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -43,9 +32,13 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [provider, setProvider] = useState("");
+  const [activeProvider, setActiveProvider] = useState<Provider | null>(null);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [temperature, setTemperature] = useState(0.7);
+  const [contextLength, setContextLength] = useState(4096);
+  const [showParams, setShowParams] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollTo({
@@ -66,9 +59,6 @@ export default function Chat() {
       const models = resp.data.data || resp.data.models || [];
       const names = models.map((item: any) => item.id || item.name || item.model);
       setModelsList(names);
-      if (names.length > 0 && !model) {
-        // Optionally auto-select first model if none selected
-      }
     } catch (err: any) {
       console.error("Failed to fetch models", err);
       setFetchError(err.message || "Failed to connect to backend");
@@ -78,8 +68,8 @@ export default function Chat() {
   };
 
   useEffect(() => {
-    const activeProvider = getBackendProvider();
-    setProvider(activeProvider);
+    const providerObj = getActiveProvider();
+    setActiveProvider(providerObj);
     fetchModels();
 
     const lastId = getActiveChatId();
@@ -90,6 +80,8 @@ export default function Chat() {
       if (lastModel) {
         setModel(lastModel);
         setIsModelSelected(true);
+        setTemperature(0.7);
+        setContextLength(4096);
       }
     }
   }, []);
@@ -101,6 +93,8 @@ export default function Chat() {
       setCurrentChatId(id);
       setMessages(chat.messages);
       setModel(chat.model);
+      setTemperature(chat.temperature ?? 0.7);
+      setContextLength(chat.contextLength ?? 4096);
       setIsModelSelected(true);
       setActiveChatId(id);
     }
@@ -109,12 +103,31 @@ export default function Chat() {
   const handleNewChat = () => {
     setCurrentChatId(null);
     setMessages([]);
-    // Do not reset model or isModelSelected to retain the last used model
+    setTemperature(0.7);
+    setContextLength(4096);
     setActiveChatId(null);
   };
 
   const handleSelectChat = (id: string) => {
     loadChat(id);
+  };
+
+  const onImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        setSelectedImages((prev) => [...prev, base64]);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleStopGeneration = () => {
@@ -128,15 +141,24 @@ export default function Chat() {
   const handleSubmit = async () => {
     if (!inputText.trim() || isStreaming || !model) return;
 
+    if (inputText.trim().startsWith("/image")) {
+      await handleImageGeneration();
+      return;
+    }
+
     abortControllerRef.current = new AbortController();
-    const userMessage: Message = { role: "user", content: inputText };
+    const userMessage: Message = { 
+      role: "user", 
+      content: inputText,
+      images: selectedImages.length > 0 ? selectedImages : undefined
+    };
     const newMessages = [...messages, userMessage];
     
     setMessages(newMessages);
     setInputText("");
+    setSelectedImages([]);
     setIsStreaming(true);
 
-    // Initial save or update for new chat
     let chatId = currentChatId;
     if (!chatId) {
       chatId = uuidv4();
@@ -148,7 +170,9 @@ export default function Chat() {
         title: inputText.slice(0, 40) + (inputText.length > 40 ? "..." : ""),
         messages: newMessages,
         model,
-        provider: getBackendProvider(),
+        provider: activeProvider?.id || "default",
+        temperature,
+        contextLength,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -169,7 +193,6 @@ export default function Chat() {
             content: currentResponse 
           };
           
-          // Save incrementally
           if (chatId) {
             const allChats = getChats();
             const existingChat = allChats.find(c => c.id === chatId);
@@ -177,6 +200,8 @@ export default function Chat() {
               saveChat({
                 ...existingChat,
                 messages: updated,
+                temperature,
+                contextLength,
                 updatedAt: Date.now(),
               });
             }
@@ -184,32 +209,106 @@ export default function Chat() {
           
           return updated;
         });
-      }, abortControllerRef.current.signal);
+      }, { temperature, contextLength }, abortControllerRef.current.signal);
     } catch (error: any) {
       if (error.name === "AbortError") {
         console.log("Generation stopped by user");
       } else {
         console.error("Streaming error:", error);
+        let errorMsg = "Failed to get response. Please check your backend connection.";
+        
+        if (error.message?.includes("support images")) {
+          errorMsg = "**Error:** The selected model does not support images. Please switch to a vision-capable model (like `llava`).";
+        } else if (error.message) {
+          errorMsg = `**Error:** ${error.message}`;
+        }
+
         setMessages((prev) => [
           ...prev, 
-          { role: "assistant", content: "**Error:** Failed to get response. Please check your backend connection." }
+          { role: "assistant", content: errorMsg }
         ]);
       }
     } finally {
       setIsStreaming(false);
       abortControllerRef.current = null;
-      // Final save after streaming completes or errors
       if (chatId) {
         const allChats = getChats();
         const existingChat = allChats.find(c => c.id === chatId);
         if (existingChat) {
           saveChat({
             ...existingChat,
-            messages: messages, // Use the final messages state
+            messages: Array.isArray(messages) ? messages : [], 
+            temperature,
+            contextLength,
             updatedAt: Date.now(),
           });
         }
       }
+    }
+  };
+
+  const handleImageGeneration = async () => {
+    const prompt = inputText.replace("/image", "").trim();
+    if (!prompt) return;
+
+    if (!isGenerationSupported(activeProvider?.type || "")) {
+      const assistantMessage: Message = { 
+        role: "assistant", 
+        content: `**Information:** Image generation is not supported on **${activeProvider?.name || "this provider"}**. \n\nLM Studio and most local LLM servers are primarily for Text-to-Text and Vision-to-Text tasks. For image generation, you would typically need a dedicated Stable Diffusion server or a cloud API like DALL-E.` 
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      setInputText("");
+      return;
+    }
+
+    const userMessage: Message = { role: "user", content: inputText };
+    setMessages((prev) => [...prev, userMessage]);
+    setInputText("");
+    setIsStreaming(true);
+
+    try {
+      const b64 = await GenerateImage(prompt, model);
+      const assistantMessage: Message = { 
+        role: "assistant", 
+        content: `![Generated Image](data:image/png;base64,${b64})` 
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      let chatId = currentChatId;
+      if (!chatId) {
+        chatId = uuidv4();
+        setCurrentChatId(chatId);
+        setActiveChatId(chatId);
+          const newChat: ChatSession = {
+          id: chatId,
+          title: `Generated: ${prompt.slice(0, 20)}...`,
+          messages: [...messages, userMessage, assistantMessage],
+          model,
+          provider: activeProvider?.id || "default",
+          temperature,
+          contextLength,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        saveChat(newChat);
+      } else {
+        const allChats = getChats();
+        const existingChat = allChats.find(c => c.id === chatId);
+        if (existingChat) {
+          saveChat({
+            ...existingChat,
+            messages: [...messages, userMessage, assistantMessage],
+            temperature,
+            contextLength,
+            updatedAt: Date.now(),
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Image generation error:", error);
+      setMessages((prev) => [...prev, { role: "assistant", content: "**Error:** Failed to generate image." }]);
+    } finally {
+      setIsStreaming(false);
     }
   };
 
@@ -220,188 +319,68 @@ export default function Chat() {
     }
   };
 
-  const handleInput = () => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  };
-
-  const getProviderLabel = (p: string) => {
-    switch (p) {
-      case "ollama": return "Ollama";
-      case "lm-studio": return "LM Studio";
-      case "llama-cpp": return "llama.cpp";
-      case "openai-generic": return "OpenAI";
-      default: return "Local AI";
-    }
-  };
-
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar 
-        currentChatId={currentChatId}
-        onSelectChat={handleSelectChat}
-        onNewChat={handleNewChat}
-      />
-      
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="flex items-center justify-between p-4 border-b shrink-0">
-          <div className="flex items-center gap-4 min-w-0">
-            <Link href="/" className="flex items-center gap-2 shrink-0">
-              <h1 className="font-bold text-xl hidden sm:block">ConvoBuddy</h1>
-              <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full border border-primary/20 flex items-center gap-1">
-                <Server className="size-3" />
-                {getProviderLabel(provider)}
-              </span>
-            </Link>
-            <Select
-              value={model}
-              onValueChange={(value) => {
-                setModel(value);
-                setIsModelSelected(true);
-                setLastUsedModel(value); // Save as last used
-              }}
-              disabled={isLoadingModels || !!fetchError}
-            >
-              <SelectTrigger className="w-[180px] sm:w-[240px]">
-                {isLoadingModels ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="size-4 animate-spin" />
-                    <span>Loading...</span>
-                  </div>
-                ) : (
-                  <SelectValue placeholder={fetchError ? "Error fetching" : "Select a Model"} />
-                )}
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {fetchError ? (
-                    <div className="p-2 space-y-2">
-                       <p className="text-xs text-destructive font-medium">{fetchError}</p>
-                       <Button 
-                         size="sm" 
-                         variant="outline" 
-                         className="w-full text-[10px] h-7"
-                         onClick={(e) => {
-                           e.preventDefault();
-                           fetchModels();
-                         }}
-                       >
-                         Retry
-                       </Button>
-                    </div>
-                  ) : modelsList.length > 0 ? (
-                    modelsList.map((m, i) => (
-                      <SelectItem key={i} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="none" disabled>No models found</SelectItem>
-                  )}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <ModeToggle />
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/settings">
-                <Settings className="size-5" />
-              </Link>
-            </Button>
-          </div>
-        </header>
+    <TooltipProvider>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar 
+          currentChatId={currentChatId}
+          onSelectChat={handleSelectChat}
+          onNewChat={handleNewChat}
+        />
+        
+        <div className="flex-1 flex flex-col min-w-0">
+          <ChatHeader 
+            providerName={activeProvider?.name || "Select Provider"}
+            model={model}
+            modelsList={modelsList}
+            isLoadingModels={isLoadingModels}
+            fetchError={fetchError}
+            temperature={temperature}
+            contextLength={contextLength}
+            showParams={showParams}
+            isModelSelected={isModelSelected}
+            onModelChange={(value) => {
+              setModel(value);
+              setIsModelSelected(true);
+              setLastUsedModel(value);
+            }}
+            onFetchModels={fetchModels}
+            onToggleParams={setShowParams}
+            onSetTemperature={setTemperature}
+            onSetContextLength={setContextLength}
+            isVisionModel={isVisionModel}
+          />
 
-        {/* Chat Area */}
-        <main 
-          ref={messagesEndRef}
-          className="flex-1 overflow-y-auto p-4 space-y-6"
-        >
-          {messages.length === 0 && !isStreaming ? (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-70">
-              <h2 className="text-2xl font-semibold italic">What can I help you with today?</h2>
-              {!isModelSelected && (
-                <p className="text-muted-foreground animate-bounce">
-                  Please select a model to start chatting
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="max-w-3xl mx-auto space-y-8 pb-32">
-              {messages.map((msg, i) => (
-                <div 
-                  key={i} 
-                  className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-                >
-                  <div className={cn(
-                    "max-w-[85%] rounded-2xl px-4 py-2 text-sm md:text-base",
-                    msg.role === "user" 
-                      ? "bg-primary text-primary-foreground rounded-tr-none" 
-                      : "bg-muted prose prose-sm dark:prose-invert rounded-tl-none border shadow-sm"
-                  )}>
-                    {msg.role === "user" ? (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    ) : (
-                      <Markdown remarkPlugins={[remarkGfm]}>
-                        {msg.content || (isStreaming && i === messages.length - 1 ? "..." : "")}
-                      </Markdown>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {isStreaming && (
-                <div className="h-4 w-full flex justify-center">
-                   <div className="animate-pulse text-xs text-muted-foreground">
-                     {getProviderLabel(provider)} is thinking...
-                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </main>
-
-        {/* Input Area */}
-        <div className="border-t p-4 pb-8 bg-background/80 backdrop-blur-sm">
-          <div className={cn(
-            "max-w-3xl mx-auto relative flex items-end gap-2 border rounded-xl p-2 focus-within:ring-1 focus-within:ring-ring",
-            !isModelSelected && "opacity-50 pointer-events-none"
-          )}>
-            <Textarea
-              ref={textareaRef}
-              placeholder={isModelSelected ? "Type your message..." : "Select a model first"}
-              className="flex-1 min-h-[44px] max-h-[200px] bg-transparent border-none focus-visible:ring-0 shadow-none resize-none pt-2 px-3 transition-all"
-              rows={1}
-              value={inputText}
-              onInput={handleInput}
-              onKeyDown={handleKeyDown}
-              onChange={(e) => setInputText(e.target.value)}
-              disabled={!isModelSelected || isStreaming}
+          <main 
+            ref={messagesEndRef}
+            className="flex-1 overflow-y-auto p-4 space-y-6"
+          >
+            <MessageList 
+              messages={messages}
+              isStreaming={isStreaming}
+              isModelSelected={isModelSelected}
+              providerLabel={activeProvider?.name || "AI"}
             />
-            {isStreaming ? (
-              <Button 
-                size="icon" 
-                variant="destructive"
-                className="rounded-lg shrink-0"
-                onClick={handleStopGeneration}
-              >
-                <Square className="size-5 fill-current" />
-              </Button>
-            ) : (
-              <Button 
-                size="icon" 
-                className="rounded-lg shrink-0"
-                onClick={handleSubmit}
-                disabled={!inputText.trim() || isStreaming || !model}
-              >
-                <ArrowUpIcon className="size-5" />
-              </Button>
-            )}
-          </div>
+          </main>
+
+          <footer className="border-t p-4 pb-8 bg-background/80 backdrop-blur-sm">
+            <ChatInput 
+              inputText={inputText}
+              setInputText={setInputText}
+              selectedImages={selectedImages}
+              isVisionModel={isVisionModel(model)}
+              isStreaming={isStreaming}
+              isModelSelected={isModelSelected}
+              onImageUpload={onImageUpload}
+              removeImage={removeImage}
+              handleSubmit={handleSubmit}
+              handleStopGeneration={handleStopGeneration}
+              handleKeyDown={handleKeyDown}
+              handleInput={() => {}}
+            />
+          </footer>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

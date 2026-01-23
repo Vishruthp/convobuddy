@@ -12,22 +12,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { BackendProvider } from "@/lib/localstoragehelper";
+import { 
+  Provider, 
+  ProviderType, 
+  getProviders, 
+  saveProvider, 
+  setActiveProviderId 
+} from "@/lib/localstoragehelper";
 import { GetModels } from "@/lib/apiservice";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { v4 as uuidv4 } from "uuid";
 
-interface SettingsForm {
-  provider: BackendProvider;
-  ollamaUrl: string;
-  ollamaPort: number;
+interface OnboardingForm {
+  name: string;
+  type: ProviderType;
+  baseUrl: string;
+  port: number;
 }
 
-const PROVIDERS: { label: string; value: BackendProvider; defaultPort: number }[] = [
+const PROVIDER_TYPES: { label: string; value: ProviderType; defaultPort: number }[] = [
   { label: "Ollama", value: "ollama", defaultPort: 11434 },
-  { label: "LM Studio", value: "lm-studio", defaultPort: 1244 },
+  { label: "LM Studio", value: "lm-studio", defaultPort: 1234 },
   { label: "llama.cpp", value: "llama-cpp", defaultPort: 8080 },
   { label: "Generic OpenAI API", value: "openai-generic", defaultPort: 8000 },
+  { label: "Docker Runner", value: "docker-runner", defaultPort: 8080 },
 ];
 
 export default function Home() {
@@ -36,41 +45,43 @@ export default function Home() {
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [connectionError, setConnectionError] = useState("");
   
-  const { register, handleSubmit, setValue, watch } = useForm<SettingsForm>({
+  const { register, handleSubmit, setValue, watch } = useForm<OnboardingForm>({
     defaultValues: {
-      provider: "ollama",
-      ollamaUrl: "http://127.0.0.1",
-      ollamaPort: 11434,
+      name: "Local AI",
+      type: "ollama",
+      baseUrl: "http://127.0.0.1",
+      port: 11434,
     },
   });
 
-  const selectedProvider = watch("provider");
-  const currentUrl = watch("ollamaUrl");
-  const currentPort = watch("ollamaPort");
+  const selectedType = watch("type");
+  const currentUrl = watch("baseUrl");
+  const currentPort = watch("port");
 
   useEffect(() => {
     setIsClient(true);
     
-    // Pre-fill from localStorage
-    const savedOllamaUrl = localStorage.getItem("ollamaUrl");
-    const savedPort = localStorage.getItem("ollamaPort");
-    const savedProvider = localStorage.getItem("backendProvider") as BackendProvider;
-
-    if (savedOllamaUrl && savedPort) {
-      setValue("provider", savedProvider || "ollama");
-      setValue("ollamaUrl", savedOllamaUrl);
-      setValue("ollamaPort", parseInt(savedPort));
+    // If providers exist, maybe redirect or pre-fill from first one
+    const existing = getProviders();
+    if (existing.length > 0) {
+      const p = existing[0];
+      setValue("name", p.name);
+      setValue("type", p.type);
+      
+      const [url, port] = p.url.split(/:(?=\d+$)/);
+      setValue("baseUrl", url);
+      setValue("port", parseInt(port) || 80);
     }
   }, [setValue]);
 
-  // Update default port when provider changes
+  // Update default port when type changes
   useEffect(() => {
-    const providerObj = PROVIDERS.find((p) => p.value === selectedProvider);
-    if (providerObj && isClient) {
-      setValue("ollamaPort", providerObj.defaultPort);
+    const typeObj = PROVIDER_TYPES.find((t) => t.value === selectedType);
+    if (typeObj && isClient) {
+      setValue("port", typeObj.defaultPort);
       setConnectionStatus("idle");
     }
-  }, [selectedProvider, setValue, isClient]);
+  }, [selectedType, setValue, isClient]);
 
   // Reset connection status if URL or Port changes
   useEffect(() => {
@@ -81,13 +92,9 @@ export default function Home() {
     setConnectionStatus("testing");
     setConnectionError("");
 
-    // Temporarily save to localStorage so GetModels uses the current inputs
-    localStorage.setItem("backendProvider", selectedProvider);
-    localStorage.setItem("ollamaUrl", currentUrl);
-    localStorage.setItem("ollamaPort", currentPort.toString());
-
+    const fullUrl = `${currentUrl}:${currentPort}`;
     try {
-      await GetModels();
+      await GetModels(fullUrl, selectedType);
       setConnectionStatus("success");
     } catch (err: any) {
       setConnectionStatus("error");
@@ -95,10 +102,16 @@ export default function Home() {
     }
   };
 
-  const onSubmit = (data: SettingsForm) => {
-    localStorage.setItem("backendProvider", data.provider);
-    localStorage.setItem("ollamaUrl", data.ollamaUrl);
-    localStorage.setItem("ollamaPort", data.ollamaPort.toString());
+  const onSubmit = (data: OnboardingForm) => {
+    const newProvider: Provider = {
+      id: uuidv4(),
+      name: data.name,
+      url: `${data.baseUrl}:${data.port}`,
+      type: data.type,
+    };
+    
+    saveProvider(newProvider);
+    setActiveProviderId(newProvider.id);
     router.push("/chat");
   };
 
@@ -108,6 +121,11 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen p-8 bg-background font-[family-name:var(--font-geist-sans)]">
       <main className="max-w-md w-full space-y-12">
         <div className="text-center space-y-4">
+          <div className="flex justify-center mb-6">
+            <div className="size-16 bg-primary rounded-2xl flex items-center justify-center shadow-2xl shadow-primary/20 animate-pulse">
+                <Sparkles className="size-8 text-primary-foreground" />
+            </div>
+          </div>
           <h1 className="text-5xl font-extrabold tracking-tight">
             Convo Buddy
           </h1>
@@ -124,18 +142,28 @@ export default function Home() {
 
           <div className="space-y-6">
             <div className="space-y-2">
+              <Label htmlFor="name">Friendly Name</Label>
+              <Input
+                id="name"
+                placeholder="e.g. My Local M3"
+                {...register("name", { required: "Name is required" })}
+                className="h-12 border-2 focus-visible:ring-primary/20"
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label>Backend Provider</Label>
               <Select
-                value={selectedProvider}
-                onValueChange={(val) => setValue("provider", val as BackendProvider)}
+                value={selectedType}
+                onValueChange={(val) => setValue("type", val as ProviderType)}
               >
                 <SelectTrigger className="h-12 border-2 hover:border-primary/50 transition-colors">
-                  <SelectValue placeholder="Select a provider" />
+                  <SelectValue placeholder="Select a type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROVIDERS.map((p) => (
-                    <SelectItem key={p.value} value={p.value}>
-                      {p.label}
+                  {PROVIDER_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -144,11 +172,11 @@ export default function Home() {
 
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2 space-y-2">
-                <Label htmlFor="ollamaUrl">Base URL</Label>
+                <Label htmlFor="baseUrl">Base URL</Label>
                 <Input
-                  id="ollamaUrl"
+                  id="baseUrl"
                   placeholder="http://127.0.0.1"
-                  {...register("ollamaUrl", { required: "Base URL is required" })}
+                  {...register("baseUrl", { required: "Base URL is required" })}
                   className="h-12 border-2"
                 />
               </div>
@@ -157,19 +185,19 @@ export default function Home() {
                 <Input
                   id="port"
                   type="number"
-                  {...register("ollamaPort", { required: "Port is required" })}
+                  {...register("port", { required: "Port is required" })}
                   className="h-12 border-2"
                 />
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 pt-2">
               <Button 
                 type="button"
                 variant="outline"
                 onClick={testConnection}
                 disabled={connectionStatus === "testing"}
-                className="w-full h-11 border-2 flex items-center justify-center gap-2"
+                className="w-full h-11 border-2 flex items-center justify-center gap-2 transition-all hover:bg-muted"
               >
                 {connectionStatus === "testing" ? (
                   <>
@@ -204,7 +232,7 @@ export default function Home() {
                   "w-full font-bold h-14 text-lg rounded-xl shadow-lg transition-all active:scale-[0.98]",
                   connectionStatus === "success" 
                     ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20" 
-                    : "bg-yellow-400 hover:bg-yellow-500 text-black shadow-yellow-400/20"
+                    : "bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/20"
                 )}
               >
                 Start Chatting
