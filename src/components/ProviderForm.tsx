@@ -237,28 +237,36 @@ export function ProviderForm({
           </p>
         )}
 
-        <div className="flex gap-2">
-          <Button
-            type="submit"
-            size="lg"
-            className={cn(
-              "flex-1 font-black h-14 text-lg rounded-2xl shadow-xl transition-all active:scale-[0.98] uppercase tracking-widest",
-              connectionStatus === "success"
-                ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20"
-                : "bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/20",
-            )}
-          >
-            {submitLabel}
-          </Button>
-          {onCancel && (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
             <Button
-              variant="outline"
-              type="button"
-              onClick={onCancel}
-              className="h-14 px-8 rounded-2xl border-2 font-bold uppercase tracking-wider"
+              type="submit"
+              size="lg"
+              disabled={connectionStatus !== "success"}
+              className={cn(
+                "flex-1 font-black h-14 text-lg rounded-2xl shadow-xl transition-all active:scale-[0.98] uppercase tracking-widest",
+                connectionStatus === "success"
+                  ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20"
+                  : "bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/20",
+              )}
             >
-              Cancel
+              {submitLabel}
             </Button>
+            {onCancel && (
+              <Button
+                variant="outline"
+                type="button"
+                onClick={onCancel}
+                className="h-14 px-8 rounded-2xl border-2 font-bold uppercase tracking-wider"
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+          {connectionStatus !== "success" && (
+            <p className="text-[10px] text-center text-muted-foreground font-medium uppercase tracking-tighter opacity-70">
+              Please test connection before saving
+            </p>
           )}
         </div>
       </div>
