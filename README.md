@@ -2,28 +2,24 @@
 
 **ConvoBuddy** is a versatile local AI-powered chatbot built with **Next.js**. It connects to your choice of local AI agents—be it **Ollama**, **LM Studio**, **llama.cpp**, or any **OpenAI-compatible** backend—bringing powerful, private, and responsive LLMs right to your fingertips.
 
-![ConvoBuddy Home](public/home.png)
-
 ## Features
 
-- **Multi-Backend Support**: Seamlessly switch between Ollama, LM Studio, llama.cpp, and generic OpenAI APIs.
-- **Real-Time Streaming**: Experience immediate feedback with streaming AI responses.
-- **Stop Generation**: Take control by halting responses mid-generation with a dedicated "Stop" button.
-- **Dynamic Context**: Provider-aware UI that tells you exactly which backend is "thinking".
-- **Easy Model Switching**: Quick access to all your locally downloaded models.
+- **Multi-Backend Support**: Seamlessly manage and switch between Ollama, LM Studio, llama.cpp, and generic OpenAI APIs.
+- **Vision Support**: Upload and analyze images with vision-capable models (e.g., LLava, Moondream).
+- **Safe Connectivity**: Built-in connection testing ensures you only switch to active, healthy backends.
+- **Unified Entry Point**: Smart routing at `/` that automatically jumps to chat or onboarding as needed.
+- **Real-Time Streaming**: Immediate, low-latency feedback with full streaming support.
+- **Premium UI**: Sleek, glassmorphic design powered by Tailwind 4 and Shadcn UI.
 - **Privacy First**: Everything runs locally on your machine—no data ever leaves your device.
 
-## Screenshots
+## Demo
 
-````carousel
-![Chat Interface Empty](public/chat_empty.png)
-<!-- slide -->
-![Active Chat with LM Studio](public/chat_active.png)
-````
+![ConvoBuddy Demo](convobuddydemo.gif)
 
 ## Installation
 
 ### Prerequisites
+
 - **Node.js**: [Installation Guide](https://nodejs.org/en/download/)
 - One of the following local AI backends:
   - **Ollama**: [ollama.com](https://ollama.com/)
@@ -33,20 +29,21 @@
 ### Setup Steps
 
 1. **Clone the repository**:
-    ```bash
-    git clone https://github.com/vishruthp/convobuddy.git
-    cd convobuddy
-    ```
+
+   ```bash
+   git clone https://github.com/vishruthp/convobuddy.git
+   cd convobuddy
+   ```
 
 2. **Install dependencies**:
-    ```bash
-    npm install
-    ```
-   
+   ```bash
+   npm install
+   ```
 3. **Run the app**:
-    ```bash
-    npm run dev
-    ```
+
+   ```bash
+   npm run dev
+   ```
 
 4. **Configure**:
    - Open [localhost:3000](http://localhost:3000).
