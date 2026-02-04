@@ -1,15 +1,13 @@
 # ConvoBuddy
 
-**ConvoBuddy** is a versatile local AI-powered chatbot built with **Next.js**. It connects to your choice of local AI agents—be it **Ollama**, **LM Studio**, **llama.cpp**, or any **OpenAI-compatible** backend—bringing powerful, private, and responsive LLMs right to your fingertips.
+**ConvoBuddy** is a versatile local AI-powered chatbot built with **Next.js**. It connects to your choice of local AI agents backend—bringing powerful, private, and responsive LLMs right to your fingertips.
 
 ## Features
 
 - **Multi-Backend Support**: Seamlessly manage and switch between Ollama, LM Studio, llama.cpp, and generic OpenAI APIs.
 - **Vision Support**: Upload and analyze images with vision-capable models (e.g., LLava, Moondream).
 - **Safe Connectivity**: Built-in connection testing ensures you only switch to active, healthy backends.
-- **Unified Entry Point**: Smart routing at `/` that automatically jumps to chat or onboarding as needed.
-- **Real-Time Streaming**: Immediate, low-latency feedback with full streaming support.
-- **Premium UI**: Sleek, glassmorphic design powered by Tailwind 4 and Shadcn UI.
+- **Premium UI**: Sleek design powered by Tailwind 4 and Shadcn UI.
 - **Privacy First**: Everything runs locally on your machine—no data ever leaves your device.
 
 ## Demo
@@ -20,11 +18,8 @@
 
 ### Prerequisites
 
-- **Node.js**: [Installation Guide](https://nodejs.org/en/download/)
-- One of the following local AI backends:
-  - **Ollama**: [ollama.com](https://ollama.com/)
-  - **LM Studio**: [lmstudio.ai](https://lmstudio.ai/)
-  - **llama.cpp**: [github.com/ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp)
+- **Node.js**
+- Any local AI backends running on your system
 
 ### Setup Steps
 
@@ -47,5 +42,4 @@
 
 4. **Configure**:
    - Open [localhost:3000](http://localhost:3000).
-   - Click "Start Chat" or go to Settings.
    - Select your provider, set the URL and Port, and you're ready to go!
